@@ -23,11 +23,14 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Futures;
 import com.google.idea.blaze.base.BlazeTestCase;
 import com.google.idea.blaze.base.bazel.BuildSystemProvider;
+import com.google.idea.blaze.base.command.BlazeCommand;
 import com.google.idea.blaze.base.command.BlazeCommandName;
 import com.google.idea.blaze.base.command.BlazeFlags;
 import com.google.idea.blaze.base.command.BuildFlagsProvider;
 import com.google.idea.blaze.base.dependencies.TargetInfo;
 import com.google.idea.blaze.base.ideinfo.TargetIdeInfo;
+import com.google.idea.blaze.base.io.TempDirectoryProvider;
+import com.google.idea.blaze.base.io.TempDirectoryProviderImpl;
 import com.google.idea.blaze.base.model.primitives.GenericBlazeRules;
 import com.google.idea.blaze.base.model.primitives.Kind;
 import com.google.idea.blaze.base.model.primitives.Label;
@@ -52,8 +55,10 @@ import com.google.idea.blaze.java.fastbuild.FastBuildService;
 import com.google.idea.blaze.java.sync.source.JavaLikeLanguage;
 import com.google.idea.common.experiments.ExperimentService;
 import com.google.idea.common.experiments.MockExperimentService;
+import com.intellij.execution.ExecutionException;
 import com.intellij.openapi.extensions.impl.ExtensionPointImpl;
 import com.intellij.openapi.project.Project;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.Future;
 import javax.annotation.Nullable;
@@ -79,6 +84,7 @@ public class BlazeJavaRunProfileStateTest extends BlazeTestCase {
     ExperimentService experimentService = new MockExperimentService();
     applicationServices.register(ExperimentService.class, experimentService);
     applicationServices.register(BlazeUserSettings.class, new BlazeUserSettings());
+    applicationServices.register(TempDirectoryProvider.class, new TempDirectoryProviderImpl());
 
     ExtensionPointImpl<Kind.Provider> ep =
         registerExtensionPoint(Kind.Provider.EP_NAME, Kind.Provider.class);
@@ -181,6 +187,24 @@ public class BlazeJavaRunProfileStateTest extends BlazeTestCase {
                 "--",
                 "//label:java_binary_rule",
                 "--wrapper_script_flag=--debug=5005"));
+  }
+
+  @Test
+  public void getBashCommandsToRunScript() throws ExecutionException {
+    BlazeCommand.Builder commandBuilder =
+        BlazeCommand.builder("/usr/bin/blaze", BlazeCommandName.BUILD)
+            .addTargets(Label.create("//label:java_binary_rule"));
+    List<String> command = BlazeJavaRunProfileState.getBashCommandsToRunScript(commandBuilder);
+    assertThat(command).hasSize(3);
+    assertThat(command.get(0)).isEqualTo("/bin/bash");
+    assertThat(command.get(1)).isEqualTo("-c");
+    Path tempDirectory = TempDirectoryProvider.getInstance().getTempDirectory();
+    String toolTagFlag = BlazeFlags.getToolTagFlag();
+    assertThat(command.get(2))
+        .matches(
+            ("/usr/bin/blaze build " + toolTagFlag)
+                + (" --script_path=(" + tempDirectory + "/[^ ]+)")
+                + " -- //label:java_binary_rule && \\1");
   }
 
   private static class MockTargetFinder implements TargetFinder {

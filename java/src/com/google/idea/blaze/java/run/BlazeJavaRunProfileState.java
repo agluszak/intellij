@@ -59,7 +59,8 @@ import com.intellij.execution.runners.ProgramRunner;
 import com.intellij.execution.ui.ConsoleView;
 import com.intellij.openapi.project.Project;
 import com.intellij.util.execution.ParametersListUtil;
-import java.io.File;
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -140,11 +141,18 @@ final class BlazeJavaRunProfileState extends BlazeJavaDebuggableRunProfileState 
   }
 
   /** Appends '--script_path' to blaze flags, then runs 'bash -c blaze build ... && run_script' */
-  private static List<String> getBashCommandsToRunScript(BlazeCommand.Builder blazeCommand) {
-    File scriptFile = BlazeBeforeRunCommandHelper.createScriptPathFile();
-    blazeCommand.addBlazeFlags("--script_path=" + scriptFile.getPath());
+  @VisibleForTesting
+  static List<String> getBashCommandsToRunScript(BlazeCommand.Builder blazeCommand)
+      throws ExecutionException {
+    Path scriptPath;
+    try {
+      scriptPath = BlazeBeforeRunCommandHelper.createScriptPathFile();
+    } catch (IOException e) {
+      throw new ExecutionException("Failed to create script path", e);
+    }
+    blazeCommand.addBlazeFlags("--script_path=" + scriptPath);
     String blaze = ParametersListUtil.join(blazeCommand.build().toList());
-    return ImmutableList.of("/bin/bash", "-c", blaze + " && " + scriptFile.getPath());
+    return ImmutableList.of("/bin/bash", "-c", blaze + " && " + scriptPath);
   }
 
   @Override
